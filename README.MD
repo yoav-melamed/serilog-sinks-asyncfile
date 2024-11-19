@@ -1,6 +1,6 @@
 # Serilog.Sinks.AsyncFile
 
-An advanced file sink for Serilog that writes events to files in plain text or JSON format.
+An advanced file sink for Serilog that writes events to files in plain text.
 
 ### Features
 * Embedded asynchronous log writing using the `Channel<T>` api
