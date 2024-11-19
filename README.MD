@@ -4,7 +4,7 @@ An advanced file sink for Serilog that writes events to files in plain text.
 
 ### Features
 * Embedded asynchronous log writing using the `Channel<T>` api
-* Control over the channel capacity (default is 50,000)
+* Control over the channel capacity
 * Advanced rolling policies
   * Rolling by file size
   * Rolling on startup
