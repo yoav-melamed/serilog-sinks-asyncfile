@@ -8,6 +8,7 @@ namespace Serilog.Sinks.AsyncFile;
 /// </summary>
 public static class LoggerConfigurationExtension
 {
+    private const int DefaultCapacity = 65_536;
     private const string DefaultOutputTemplate =
         "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}";
 
@@ -21,7 +22,7 @@ public static class LoggerConfigurationExtension
         this LoggerSinkConfiguration loggerSinkConfiguration,
         string path)
     {
-        return AsyncFile(loggerSinkConfiguration, path, 65_536, DefaultOutputTemplate, new RollingPolicyOptions());
+        return AsyncFile(loggerSinkConfiguration, path, DefaultCapacity, DefaultOutputTemplate, new RollingPolicyOptions());
     }
 
     /// <summary>
@@ -52,7 +53,7 @@ public static class LoggerConfigurationExtension
         string path,
         string outputTemplate)
     {
-        return AsyncFile(loggerSinkConfiguration, path, 65_536, outputTemplate, new RollingPolicyOptions());
+        return AsyncFile(loggerSinkConfiguration, path, DefaultCapacity, outputTemplate, new RollingPolicyOptions());
     }
 
     /// <summary>
@@ -67,7 +68,7 @@ public static class LoggerConfigurationExtension
         string path, 
         RollingPolicyOptions rollingPolicyOptions)
     {
-        return AsyncFile(loggerSinkConfiguration, path, 65_536, DefaultOutputTemplate, rollingPolicyOptions);
+        return AsyncFile(loggerSinkConfiguration, path, DefaultCapacity, DefaultOutputTemplate, rollingPolicyOptions);
     }
 
     /// <summary>
@@ -85,7 +86,7 @@ public static class LoggerConfigurationExtension
         string outputTemplate,
         RollingPolicyOptions rollingPolicyOptions)
     {
-        return AsyncFile(loggerSinkConfiguration, path, 65_536, outputTemplate, rollingPolicyOptions);
+        return AsyncFile(loggerSinkConfiguration, path, DefaultCapacity, outputTemplate, rollingPolicyOptions);
     }
 
     /// <summary>
