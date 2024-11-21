@@ -8,6 +8,7 @@ An advanced file sink for Serilog that writes events to files in plain text.
 * Advanced rolling policies
   * Rolling by file size
   * Rolling on startup
+  * Change the rolled file name format
   * Roll to archive folder
   * Delete old rolled files by age
 
@@ -66,6 +67,21 @@ The file sink can roll files on startup. To roll files when the application star
 ```
 
 This will create a new file when the application starts.
+
+#### Change the rolled file name format
+The sink can roll files with a specific file name format. To roll files with a specific file name format, specify
+`RollingPolicyOptions.RollingFileNameFormat` (Default: "{0:yyyy-MM-dd-HH-mm-ss}_{1}{2}"):
+
+- 0: The timestamp of the log event
+- 1: The original file name without extension
+- 2: The original file extension (with the dot)
+
+```csharp
+    .WriteTo.AsyncFile("log.txt", new RollingPolicyOptions
+    {
+        RollingFileNameFormat = "{0:MM-dd-yyyy-HH-mm-ss}_{1}.archived{2}"
+    })
+```
 
 #### Roll to archive folder
 The file sink can roll files to an archive folder. To roll files to an archive folder, specify
