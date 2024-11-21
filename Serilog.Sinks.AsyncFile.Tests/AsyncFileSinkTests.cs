@@ -115,7 +115,8 @@ public class AsyncFileSinkTests
         using var asyncFileSink = new AsyncFileSink(tempFilePath, new RollingPolicyOptions 
         {
             RollOnStartup = true,
-            RollToArchiveFolder = true
+            RollToArchiveFolder = true,
+            ArchiveFolderName = "History"
         });
 
         // Assert
