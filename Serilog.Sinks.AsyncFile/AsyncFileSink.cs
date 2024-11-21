@@ -86,18 +86,16 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
     /// <param name="rollingPolicyOptions"></param>
     public AsyncFileSink(string path, int capacity, ITextFormatter formatter, RollingPolicyOptions rollingPolicyOptions)
     {
+        _rollingPolicyOptions = rollingPolicyOptions;
+        _cancellationTokenSource = new CancellationTokenSource();
+        
+        _logPath = path;
+        _formatter = formatter;
+        
         if (rollingPolicyOptions.RollOnStartup)
         {
             RollFile(path, rollingPolicyOptions);
         }
-
-        _cancellationTokenSource = new CancellationTokenSource();
-        
-        _ = RunRollingCleanerBackgroundTask(rollingPolicyOptions.AgeCheckInterval);
-        
-        _logPath = path;
-        _formatter = formatter;
-        _rollingPolicyOptions = rollingPolicyOptions;
         
         _logQueue = Channel.CreateBounded<LogEvent>(new BoundedChannelOptions(capacity)
         {
@@ -111,6 +109,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
 
         _writer = new StreamWriter(_underlingFileStream, Encoding.UTF8);
 
+        _ = RunRollingCleanerBackgroundTask(rollingPolicyOptions.AgeCheckInterval);
         _ = ConsumeMessages();
     }
 
@@ -178,21 +177,28 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
     {
         while (!_cancellationTokenSource.IsCancellationRequested)
         {
-            var rollingFolderPath =
-                Path.Combine(Path.GetDirectoryName(_logPath)!, _rollingPolicyOptions.ArchiveFolderName);
+            var rollingFolderName = _rollingPolicyOptions.RollToArchiveFolder
+                ? _rollingPolicyOptions.ArchiveFolderName
+                : "";
+
+            var rollingFolderPath = Path.Combine(Path.GetDirectoryName(_logPath)!, rollingFolderName);
+            
             if (!Directory.Exists(rollingFolderPath))
             {
                 await Task.Delay(TimeSpan.FromSeconds(checkIntervalSec), _cancellationTokenSource.Token);
                 continue;
             }
 
-            var historyFiles = Directory.GetFiles(rollingFolderPath, "*.log");
-            foreach (var historyFile in historyFiles)
+            var rollingFiles = Directory
+                .GetFiles(rollingFolderPath, "*")
+                .Where(f => f != _logPath);
+            
+            foreach (var rolledFile in rollingFiles)
             {
-                var fileInfo = new FileInfo(historyFile);
-                if (fileInfo.CreationTime < DateTime.Now.AddDays(-_rollingPolicyOptions.RollingRetentionDays))
+                var creationTime = File.GetCreationTime(rolledFile);
+                if (creationTime < DateTime.Now.AddDays(-_rollingPolicyOptions.RollingRetentionDays))
                 {
-                    File.Delete(historyFile);
+                    File.Delete(rolledFile);
                 }
             }
 
