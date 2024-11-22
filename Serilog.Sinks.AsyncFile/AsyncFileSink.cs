@@ -21,7 +21,8 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
     private readonly ITextFormatter _formatter;
     private readonly RollingPolicyOptions _rollingPolicyOptions;
     private readonly CancellationTokenSource _cancellationTokenSource;
-    
+    private readonly Task _consumerTask;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="AsyncFileSink"/> class.
     /// </summary>
@@ -30,6 +31,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
         : this(path, 65_536, new JsonFormatter(), new RollingPolicyOptions())
     {
     }
+
     /// <summary>
     /// Initializes a new instance of the <see cref="AsyncFileSink"/> class.
     /// </summary>
@@ -39,6 +41,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
         : this(path, capacity, new JsonFormatter(), new RollingPolicyOptions())
     {
     }
+
     /// <summary>
     /// Initializes a new instance of the <see cref="AsyncFileSink"/> class.
     /// </summary>
@@ -48,6 +51,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
         : this(path, 65_536, formatter, new RollingPolicyOptions())
     {
     }
+
     /// <summary>
     /// Initializes a new instance of the <see cref="AsyncFileSink"/> class.
     /// </summary>
@@ -57,6 +61,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
         : this(path, 65_536, new JsonFormatter(), rollingPolicyOptions)
     {
     }
+
     /// <summary>
     /// Initializes a new instance of the <see cref="AsyncFileSink"/> class.
     /// </summary>
@@ -67,6 +72,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
         : this(path, 65_536, formatter, rollingPolicyOptions)
     {
     }
+
     /// <summary>
     /// Initializes a new instance of the <see cref="AsyncFileSink"/> class.
     /// </summary>
@@ -77,6 +83,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
         : this(path, capacity, formatter, new RollingPolicyOptions())
     {
     }
+
     /// <summary>
     /// Initializes a new instance of the <see cref="AsyncFileSink"/> class.
     /// </summary>
@@ -88,15 +95,15 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
     {
         _rollingPolicyOptions = rollingPolicyOptions;
         _cancellationTokenSource = new CancellationTokenSource();
-        
+
         _logPath = path;
         _formatter = formatter;
-        
+
         if (rollingPolicyOptions.RollOnStartup)
         {
             RollFile(path, rollingPolicyOptions);
         }
-        
+
         _logQueue = Channel.CreateBounded<LogEvent>(new BoundedChannelOptions(capacity)
         {
             FullMode = BoundedChannelFullMode.Wait,
@@ -104,13 +111,17 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
             SingleWriter = false
         });
 
+        var logsFolder = Path.GetDirectoryName(path);
+        if (!Directory.Exists(logsFolder))
+            Directory.CreateDirectory(logsFolder!);
+
         _underlingFileStream =
             new FileStream(_logPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read);
 
         _writer = new StreamWriter(_underlingFileStream, Encoding.UTF8);
 
         _ = RunRollingCleanerBackgroundTask(rollingPolicyOptions.AgeCheckInterval);
-        _ = ConsumeMessages();
+        _consumerTask = ConsumeMessages();
     }
 
     /// <summary>
@@ -129,9 +140,10 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
     /// </summary>
     public void Dispose()
     {
-        _logQueue.Writer.Complete();
+        _logQueue.Writer.TryComplete();
+        _consumerTask.Wait();
+
         _writer.Dispose();
-        _cancellationTokenSource.Cancel();
         _cancellationTokenSource.Dispose();
     }
 
@@ -144,7 +156,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
             try
             {
                 await WriteMessageAndFlush(logEvent);
-            } 
+            }
             catch (Exception ex)
             {
                 SelfLog.WriteLine("Error writing log event to the AsyncFile Sink: {0}", ex);
@@ -161,14 +173,18 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
             {
                 _writer.Close();
                 RollFile(_underlingFileStream.Name, _rollingPolicyOptions);
-                
+
                 _underlingFileStream =
                     new FileStream(_logPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read);
 
                 _writer = new StreamWriter(_underlingFileStream, Encoding.UTF8);
             }
         }
-        
+
+        var logFolderPath = Path.GetDirectoryName(_logPath);
+        if (!Directory.Exists(logFolderPath))
+            Directory.CreateDirectory(logFolderPath!);
+
         _formatter.Format(logEvent, _writer);
         await _writer.FlushAsync();
     }
@@ -182,7 +198,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
                 : "";
 
             var rollingFolderPath = Path.Combine(Path.GetDirectoryName(_logPath)!, rollingFolderName);
-            
+
             if (!Directory.Exists(rollingFolderPath))
             {
                 await Task.Delay(TimeSpan.FromSeconds(checkIntervalSec), _cancellationTokenSource.Token);
@@ -192,7 +208,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
             var rollingFiles = Directory
                 .GetFiles(rollingFolderPath, "*")
                 .Where(f => f != _logPath);
-            
+
             foreach (var rolledFile in rollingFiles)
             {
                 var creationTime = File.GetCreationTime(rolledFile);
@@ -215,7 +231,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
         var rollingFolderName = rollingPolicyOptions.RollToArchiveFolder
             ? rollingPolicyOptions.ArchiveFolderName
             : "";
-        
+
         var rollingFolderPath = Path.Combine(Path.GetDirectoryName(path)!, rollingFolderName);
         if (!Directory.Exists(rollingFolderPath))
             Directory.CreateDirectory(rollingFolderPath);

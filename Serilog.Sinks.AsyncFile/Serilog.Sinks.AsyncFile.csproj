@@ -10,11 +10,14 @@
     </PropertyGroup>
 
     <PropertyGroup>
-        <Version>1.0.1</Version>
+        <Version>1.0.2</Version>
         <Authors>Yoav Melamed</Authors>
         <Copyright>(C) Yoav Melamed, 2024</Copyright>
         <PackageReadmeFile>README.md</PackageReadmeFile>
-        <PackageReleaseNotes>Fix crashing on background worker starts;Fix failing test;Refactor default queue capacity to const;Improve README.MD;Update package version</PackageReleaseNotes>
+        <PackageReleaseNotes>
+            - Ensure all logs are being written on CloseAndFlush method
+            - Creates the logs folder if it does not exist
+        </PackageReleaseNotes>
         <PackageTags>serilog;file;asyncfile</PackageTags>
         <PackageProjectUrl>https://github.com/yoav-melamed/serilog-sinks-asyncfile</PackageProjectUrl>
         <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>

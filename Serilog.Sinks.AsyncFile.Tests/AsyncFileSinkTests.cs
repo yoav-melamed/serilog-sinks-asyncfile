@@ -112,7 +112,7 @@ public class AsyncFileSinkTests
         var historyFolder = Path.Combine(Path.GetDirectoryName(tempFilePath)!, "History");
 
         // Act
-        using var asyncFileSink = new AsyncFileSink(tempFilePath, new RollingPolicyOptions 
+        using var asyncFileSink = new AsyncFileSink(tempFilePath, new RollingPolicyOptions
         {
             RollOnStartup = true,
             RollToArchiveFolder = true,
@@ -132,7 +132,7 @@ public class AsyncFileSinkTests
         Assert.False(File.Exists(historyFilePath));
         Assert.False(Directory.Exists(historyFolder));
     }
-    
+
     [Fact]
     public async Task Emit_CheckAllAsyncFileSinkConstructorOptions_LineIsWritten()
     {
@@ -146,7 +146,7 @@ public class AsyncFileSinkTests
         var historyFolder = Path.Combine(Path.GetDirectoryName(tempFilePath)!, "History");
 
         // Act
-        using var asyncFileSink = new AsyncFileSink(tempFilePath, 1, new JsonFormatter() , new RollingPolicyOptions
+        using var asyncFileSink = new AsyncFileSink(tempFilePath, 1, new JsonFormatter(), new RollingPolicyOptions
         {
             RollOnStartup = true,
             RollToArchiveFolder = true,
@@ -167,5 +167,52 @@ public class AsyncFileSinkTests
 
         Assert.False(File.Exists(historyFilePath));
         Assert.False(Directory.Exists(historyFolder));
+    }
+
+    [Fact]
+    public void Emit_WriteLogWhenLogsFolderDoesNotExist_LogsFolderIsCreated()
+    {
+        // Arrange
+        const string logMessage = "Test log message";
+        var logEvent = LogUtils.CreateLogEvent(logMessage);
+
+        using var tempUtils = new FileSystemUtils();
+        var tempFilePath = tempUtils.GenerateTempFilePath();
+        var tempFolder = Path.GetDirectoryName(tempFilePath)!;
+        var logsFolder = Path.Combine(tempFolder, "logs");
+        var logFilePath = Path.Combine(logsFolder, Path.GetFileName(tempFilePath));
+
+        // Act
+        using var asyncFileSink = new AsyncFileSink(logFilePath);
+        asyncFileSink.Emit(logEvent);
+
+        // Assert
+        Assert.True(Directory.Exists(logsFolder));
+
+        // Cleanup
+        Directory.Delete(logsFolder, true);
+        Assert.False(Directory.Exists(logsFolder));
+    }
+
+    [Fact]
+    public async Task Emit_StressTest_WriteLogsInParallel()
+    {
+        // Arrange
+        const int logCount = 1000;
+        const string logMessage = "Test log message";
+
+        using var tempUtils = new FileSystemUtils();
+        var tempFilePath = tempUtils.GenerateTempFilePath();
+        var logEvent = LogUtils.CreateLogEvent(logMessage);
+
+        // Act
+        using (var asyncFileSink = new AsyncFileSink(tempFilePath))
+        {
+            Parallel.For(0, logCount, _ => { asyncFileSink.Emit(logEvent); });
+        }
+
+        // Assert
+        var logLines = await File.ReadAllLinesAsync(tempFilePath);
+        Assert.Equal(logCount, logLines.Length);
     }
 }
