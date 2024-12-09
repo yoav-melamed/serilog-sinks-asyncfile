@@ -135,7 +135,7 @@ parameter.
 The default format above corresponds to an output template like:
 
 ```csharp
-  .WriteTo.File("log.txt",
+  .WriteTo.AsyncFile("log.txt",
     outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
 ```
 

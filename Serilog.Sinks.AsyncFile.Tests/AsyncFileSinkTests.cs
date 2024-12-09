@@ -29,26 +29,30 @@ public class AsyncFileSinkTests
     }
 
     [Fact]
-    public async Task Emit_WriteLineWithCustomCapacity_LineIsWritten()
+    public async Task Emit_WriteMoreLogsThanQueueCapacity_AllLinesAreWritten()
     {
         // Arrange
         const string logMessage = "Test log message";
+        const int logCount = 100;
 
         using var tempUtils = new FileSystemUtils();
         var tempFilePath = tempUtils.GenerateTempFilePath();
-
-        using var asyncFileSink = new AsyncFileSink(tempFilePath, 1);
-
         var logEvent = LogUtils.CreateLogEvent(logMessage);
 
         // Act
+        await using var asyncFileSink = new AsyncFileSink(tempFilePath, 1);
+        {
+            Parallel.For(1, logCount, _ => { asyncFileSink.Emit(logEvent); });
+        }
+        
         asyncFileSink.Emit(logEvent);
         await Task.Delay(150);
 
         var firstLine = await tempUtils.ReadFirstLine(tempFilePath);
 
         // Assert
-        Assert.Contains(logMessage, firstLine);
+        var logLines = await File.ReadAllLinesAsync(tempFilePath);
+        Assert.Equal(logCount, logLines.Length);
     }
 
     [Fact]
@@ -146,7 +150,7 @@ public class AsyncFileSinkTests
         var historyFolder = Path.Combine(Path.GetDirectoryName(tempFilePath)!, "History");
 
         // Act
-        using var asyncFileSink = new AsyncFileSink(tempFilePath, 1, new JsonFormatter(), new RollingPolicyOptions
+        await using var asyncFileSink = new AsyncFileSink(tempFilePath, 1, new JsonFormatter(), new RollingPolicyOptions
         {
             RollOnStartup = true,
             RollToArchiveFolder = true,
@@ -198,7 +202,7 @@ public class AsyncFileSinkTests
     public async Task Emit_StressTest_WriteLogsInParallel()
     {
         // Arrange
-        const int logCount = 1000;
+        const int logCount = 50_000;
         const string logMessage = "Test log message";
 
         using var tempUtils = new FileSystemUtils();
@@ -206,7 +210,7 @@ public class AsyncFileSinkTests
         var logEvent = LogUtils.CreateLogEvent(logMessage);
 
         // Act
-        using (var asyncFileSink = new AsyncFileSink(tempFilePath))
+        await using (var asyncFileSink = new AsyncFileSink(tempFilePath))
         {
             Parallel.For(0, logCount, _ => { asyncFileSink.Emit(logEvent); });
         }

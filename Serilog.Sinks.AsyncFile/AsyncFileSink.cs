@@ -11,8 +11,10 @@ namespace Serilog.Sinks.AsyncFile;
 /// <summary>
 /// A sink that writes log events to a file.
 /// </summary>
-public sealed class AsyncFileSink : ILogEventSink, IDisposable
+public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
 {
+    private const int DefaultCapacity = 65_536;
+
     private FileStream _underlingFileStream;
     private StreamWriter _writer;
 
@@ -28,7 +30,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
     /// </summary>
     /// <param name="path"></param>
     public AsyncFileSink(string path)
-        : this(path, 65_536, new JsonFormatter(), new RollingPolicyOptions())
+        : this(path, DefaultCapacity, new JsonFormatter(), new RollingPolicyOptions())
     {
     }
 
@@ -48,7 +50,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
     /// <param name="path"></param>
     /// <param name="formatter"></param>
     public AsyncFileSink(string path, ITextFormatter formatter)
-        : this(path, 65_536, formatter, new RollingPolicyOptions())
+        : this(path, DefaultCapacity, formatter, new RollingPolicyOptions())
     {
     }
 
@@ -58,7 +60,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
     /// <param name="path"></param>
     /// <param name="rollingPolicyOptions"></param>
     public AsyncFileSink(string path, RollingPolicyOptions rollingPolicyOptions)
-        : this(path, 65_536, new JsonFormatter(), rollingPolicyOptions)
+        : this(path, DefaultCapacity, new JsonFormatter(), rollingPolicyOptions)
     {
     }
 
@@ -69,7 +71,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
     /// <param name="formatter"></param>
     /// <param name="rollingPolicyOptions"></param>
     public AsyncFileSink(string path, ITextFormatter formatter, RollingPolicyOptions rollingPolicyOptions)
-        : this(path, 65_536, formatter, rollingPolicyOptions)
+        : this(path, DefaultCapacity, formatter, rollingPolicyOptions)
     {
     }
 
@@ -131,8 +133,11 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
     /// <exception cref="Exception"></exception>
     public void Emit(LogEvent logEvent)
     {
-        if (!_logQueue.Writer.TryWrite(logEvent))
-            throw new Exception("Failed to write log message to the AsyncFile Sink queue.");
+        while (!_logQueue.Writer.TryWrite(logEvent))
+        {
+            var waitingTask = Task.Run(async () => await _logQueue.Writer.WaitToWriteAsync());
+            waitingTask.Wait();
+        }
     }
 
     /// <summary>
@@ -144,6 +149,18 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
         _consumerTask.Wait();
 
         _writer.Dispose();
+        _cancellationTokenSource.Dispose();
+    }
+
+    /// <summary>
+    /// Disposes the sink asynchronously.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        _logQueue.Writer.TryComplete();
+        await _consumerTask;
+
+        await _writer.DisposeAsync();
         _cancellationTokenSource.Dispose();
     }
 
@@ -162,6 +179,8 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
                 SelfLog.WriteLine("Error writing log event to the AsyncFile Sink: {0}", ex);
             }
         }
+        
+        SelfLog.WriteLine("AsyncFileSink consumer task completed.");
     }
 
     private async Task WriteMessageAndFlush(LogEvent logEvent)
@@ -212,9 +231,17 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
             foreach (var rolledFile in rollingFiles)
             {
                 var creationTime = File.GetCreationTime(rolledFile);
-                if (creationTime < DateTime.Now.AddDays(-_rollingPolicyOptions.RollingRetentionDays))
+                if (creationTime >= DateTime.Now.AddDays(-_rollingPolicyOptions.RollingRetentionDays))
+                    continue;
+
+                try
                 {
                     File.Delete(rolledFile);
+                }
+                catch (Exception ex)
+                {
+                    SelfLog.WriteLine("Error deleting rolled file: {0}", ex);
+                    throw;
                 }
             }
 
@@ -245,7 +272,45 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable
                 Path.GetFileNameWithoutExtension(path),
                 Path.GetExtension(path)));
 
-        File.Move(path, rollingFilePath);
+        try
+        {
+            MoveFile(path, rollingFilePath);
+        }
+        catch (Exception ex)
+        {
+            SelfLog.WriteLine("Error rolling file: {0}", ex);
+            throw;
+        }
+    }
+
+    private static int _fileCounter;
+    private static void MoveFile(string path, string destination)
+    {
+        var uniqueDestinationFullPath = destination;
+        
+        if (File.Exists(destination))
+        {
+            while (File.Exists(uniqueDestinationFullPath))
+            {
+                _fileCounter++;
+                var uniqueDestinationFileName =
+                    $"{Path.GetFileNameWithoutExtension(destination)}({_fileCounter}){Path.GetExtension(destination)}";
+                uniqueDestinationFullPath =
+                    Path.Combine(Path.GetDirectoryName(destination) ?? "", uniqueDestinationFileName);
+            }
+        }
+
+        _fileCounter = 0;
+        
+        try
+        {
+            File.Move(path, uniqueDestinationFullPath);
+        }
+        catch (Exception ex)
+        {
+            SelfLog.WriteLine("Error moving file: {0}", ex);
+            throw;
+        }
     }
 
     #endregion

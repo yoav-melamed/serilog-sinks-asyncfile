@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFrameworks>net6.0;net7.0;net8.0</TargetFrameworks>
+        <TargetFrameworks>net6.0;net7.0;net8.0;net9.0</TargetFrameworks>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -10,13 +10,16 @@
     </PropertyGroup>
 
     <PropertyGroup>
-        <Version>1.0.2</Version>
+        <Version>2.0.0</Version>
         <Authors>Yoav Melamed</Authors>
         <Copyright>(C) Yoav Melamed, 2024</Copyright>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageReleaseNotes>
-            - Ensure all logs are being written on CloseAndFlush method
-            - Creates the logs folder if it does not exist
+        - Add support for .NET 9
+        - Add IAsyncDisposable support 
+        - Protect against file already exists when rolling file
+        - Fix readme typos
+        - Improved SelfLog messages
         </PackageReleaseNotes>
         <PackageTags>serilog;file;asyncfile</PackageTags>
         <PackageProjectUrl>https://github.com/yoav-melamed/serilog-sinks-asyncfile</PackageProjectUrl>
