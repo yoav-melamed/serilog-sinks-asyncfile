@@ -160,7 +160,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
         _logQueue.Writer.TryComplete();
         await _consumerTask;
 
-        await _writer.DisposeAsync();
+        _writer.Dispose();
         _cancellationTokenSource.Dispose();
     }
 
@@ -283,7 +283,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
         }
     }
 
-    private static int _fileCounter;
+    private static int s_fileCounter;
     private static void MoveFile(string path, string destination)
     {
         var uniqueDestinationFullPath = destination;
@@ -292,15 +292,15 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
         {
             while (File.Exists(uniqueDestinationFullPath))
             {
-                _fileCounter++;
+                s_fileCounter++;
                 var uniqueDestinationFileName =
-                    $"{Path.GetFileNameWithoutExtension(destination)}({_fileCounter}){Path.GetExtension(destination)}";
+                    $"{Path.GetFileNameWithoutExtension(destination)}({s_fileCounter}){Path.GetExtension(destination)}";
                 uniqueDestinationFullPath =
                     Path.Combine(Path.GetDirectoryName(destination) ?? "", uniqueDestinationFileName);
             }
         }
 
-        _fileCounter = 0;
+        s_fileCounter = 0;
         
         try
         {
