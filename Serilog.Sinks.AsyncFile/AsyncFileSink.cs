@@ -13,7 +13,7 @@ namespace Serilog.Sinks.AsyncFile;
 /// </summary>
 public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
 {
-    private const int DefaultCapacity = 65_536;
+    private const int DEFAULT_CAPACITY = 65_536;
 
     private FileStream _underlingFileStream;
     private StreamWriter _writer;
@@ -30,7 +30,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
     /// </summary>
     /// <param name="path"></param>
     public AsyncFileSink(string path)
-        : this(path, DefaultCapacity, new JsonFormatter(), new RollingPolicyOptions())
+        : this(path, DEFAULT_CAPACITY, new JsonFormatter(), new RollingPolicyOptions())
     {
     }
 
@@ -50,7 +50,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
     /// <param name="path"></param>
     /// <param name="formatter"></param>
     public AsyncFileSink(string path, ITextFormatter formatter)
-        : this(path, DefaultCapacity, formatter, new RollingPolicyOptions())
+        : this(path, DEFAULT_CAPACITY, formatter, new RollingPolicyOptions())
     {
     }
 
@@ -60,7 +60,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
     /// <param name="path"></param>
     /// <param name="rollingPolicyOptions"></param>
     public AsyncFileSink(string path, RollingPolicyOptions rollingPolicyOptions)
-        : this(path, DefaultCapacity, new JsonFormatter(), rollingPolicyOptions)
+        : this(path, DEFAULT_CAPACITY, new JsonFormatter(), rollingPolicyOptions)
     {
     }
 
@@ -71,7 +71,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
     /// <param name="formatter"></param>
     /// <param name="rollingPolicyOptions"></param>
     public AsyncFileSink(string path, ITextFormatter formatter, RollingPolicyOptions rollingPolicyOptions)
-        : this(path, DefaultCapacity, formatter, rollingPolicyOptions)
+        : this(path, DEFAULT_CAPACITY, formatter, rollingPolicyOptions)
     {
     }
 
@@ -121,6 +121,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
             new FileStream(_logPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read);
 
         _writer = new StreamWriter(_underlingFileStream, Encoding.UTF8);
+        _writer.AutoFlush = true;
 
         _ = RunRollingCleanerBackgroundTask(rollingPolicyOptions.AgeCheckInterval);
         _consumerTask = ConsumeMessages();
@@ -135,8 +136,10 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
     {
         while (!_logQueue.Writer.TryWrite(logEvent))
         {
+            SelfLog.WriteLine("AsyncFileSink: Queue is full, waiting to write log event.");
             var waitingTask = Task.Run(async () => await _logQueue.Writer.WaitToWriteAsync());
             waitingTask.Wait();
+            SelfLog.WriteLine("AsyncFileSink: Waiting completed, retrying to write log event.");
         }
     }
 
@@ -147,9 +150,12 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
     {
         _logQueue.Writer.TryComplete();
         _consumerTask.Wait();
-
+        _cancellationTokenSource.Cancel();
+        
         _writer.Dispose();
         _cancellationTokenSource.Dispose();
+        
+        _consumerTask.Dispose();
     }
 
     /// <summary>
@@ -159,9 +165,16 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
     {
         _logQueue.Writer.TryComplete();
         await _consumerTask;
+#if NET8_0_OR_GREATER
+        await _cancellationTokenSource.CancelAsync();
+#else
+        _cancellationTokenSource.Dispose();
+#endif
 
         await _writer.DisposeAsync();
         _cancellationTokenSource.Dispose();
+        
+        _consumerTask.Dispose();
     }
 
     #region Private Methods
@@ -172,7 +185,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
         {
             try
             {
-                await WriteMessageAndFlush(logEvent);
+                WriteMessageAndFlush(logEvent);
             }
             catch (Exception ex)
             {
@@ -183,7 +196,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
         SelfLog.WriteLine("AsyncFileSink consumer task completed.");
     }
 
-    private async Task WriteMessageAndFlush(LogEvent logEvent)
+    private void WriteMessageAndFlush(LogEvent logEvent)
     {
         if (_rollingPolicyOptions.FileSizeLimitBytes > 0)
         {
@@ -205,7 +218,6 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
             Directory.CreateDirectory(logFolderPath!);
 
         _formatter.Format(logEvent, _writer);
-        await _writer.FlushAsync();
     }
 
     private async Task RunRollingCleanerBackgroundTask(int checkIntervalSec)
