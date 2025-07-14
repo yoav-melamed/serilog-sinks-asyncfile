@@ -12,7 +12,7 @@
     <PropertyGroup>
         <Version>2.1.0</Version>
         <Authors>Yoav Melamed</Authors>
-        <Copyright>(C) Yoav Melamed, 2024</Copyright>
+        <Copyright>(C) Yoav Melamed, 2025</Copyright>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageReleaseNotes>
         - Performance improvements
