@@ -11,7 +11,12 @@ namespace Serilog.Sinks.AsyncFile;
 /// <summary>
 /// A sink that writes log events to a file.
 /// </summary>
-public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
+public sealed class AsyncFileSink 
+    : ILogEventSink, 
+        IDisposable
+#if NET6_0_OR_GREATER
+        ,IAsyncDisposable
+#endif
 {
     private const int DEFAULT_CAPACITY = 65_536;
 
@@ -25,6 +30,8 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
     private readonly CancellationTokenSource _cancellationTokenSource;
     private readonly Task _consumerTask;
 
+    private static int _archivedFileCounter;
+    
     /// <summary>
     /// Initializes a new instance of the <see cref="AsyncFileSink"/> class.
     /// </summary>
@@ -158,6 +165,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
         _consumerTask.Dispose();
     }
 
+#if NET6_0_OR_GREATER
     /// <summary>
     /// Disposes the sink asynchronously.
     /// </summary>
@@ -165,22 +173,23 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
     {
         _logQueue.Writer.TryComplete();
         await _consumerTask;
-#if NET8_0_OR_GREATER
+
         await _cancellationTokenSource.CancelAsync();
-#else
         _cancellationTokenSource.Dispose();
-#endif
 
         await _writer.DisposeAsync();
         _cancellationTokenSource.Dispose();
         
         _consumerTask.Dispose();
     }
+#endif
 
     #region Private Methods
 
     private async Task ConsumeMessages()
     {
+        SelfLog.WriteLine("AsyncFileSink consumer task started.");
+#if NET8_0_OR_GREATER
         await foreach (var logEvent in _logQueue.Reader.ReadAllAsync(_cancellationTokenSource.Token))
         {
             try
@@ -192,6 +201,22 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
                 SelfLog.WriteLine("Error writing log event to the AsyncFile Sink: {0}", ex);
             }
         }
+#else
+        while (await _logQueue.Reader.WaitToReadAsync(_cancellationTokenSource.Token))
+        {
+            while (_logQueue.Reader.TryRead(out var logEvent))
+            {
+                try
+                {
+                    WriteMessageAndFlush(logEvent);
+                }
+                catch (Exception ex)
+                {
+                    SelfLog.WriteLine("Error writing log event to the AsyncFile Sink: {0}", ex);
+                }
+            }
+        }
+#endif
         
         SelfLog.WriteLine("AsyncFileSink consumer task completed.");
     }
@@ -265,7 +290,13 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
         string path,
         RollingPolicyOptions rollingPolicyOptions)
     {
-        if (!File.Exists(path)) return;
+        SelfLog.WriteLine("Rolling file: {0}", path);
+
+        if (!File.Exists(path))
+        {
+            SelfLog.WriteLine("File does not exist, skipping rolling: {0}", path);
+            return;
+        }
 
         var rollingFolderName = rollingPolicyOptions.RollToArchiveFolder
             ? rollingPolicyOptions.ArchiveFolderName
@@ -283,6 +314,8 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
                 DateTime.Now,
                 Path.GetFileNameWithoutExtension(path),
                 Path.GetExtension(path)));
+        
+        SelfLog.WriteLine("Rolling file path: {0}", rollingFilePath);
 
         try
         {
@@ -294,8 +327,7 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
             throw;
         }
     }
-
-    private static int _fileCounter;
+    
     private static void MoveFile(string path, string destination)
     {
         var uniqueDestinationFullPath = destination;
@@ -304,19 +336,22 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
         {
             while (File.Exists(uniqueDestinationFullPath))
             {
-                _fileCounter++;
+                _archivedFileCounter++;
                 var uniqueDestinationFileName =
-                    $"{Path.GetFileNameWithoutExtension(destination)}({_fileCounter}){Path.GetExtension(destination)}";
+                    $"{Path.GetFileNameWithoutExtension(destination)}({_archivedFileCounter}){Path.GetExtension(destination)}";
                 uniqueDestinationFullPath =
                     Path.Combine(Path.GetDirectoryName(destination) ?? "", uniqueDestinationFileName);
             }
         }
 
-        _fileCounter = 0;
+        _archivedFileCounter = 0;
         
         try
         {
-            File.Move(path, uniqueDestinationFullPath);
+            File.Copy(path, uniqueDestinationFullPath, true);
+            File.Delete(path);
+            
+            SelfLog.WriteLine("Moved file from {0} to {1}", path, uniqueDestinationFullPath);
         }
         catch (Exception ex)
         {
@@ -324,6 +359,5 @@ public sealed class AsyncFileSink : ILogEventSink, IDisposable, IAsyncDisposable
             throw;
         }
     }
-
     #endregion
 }
