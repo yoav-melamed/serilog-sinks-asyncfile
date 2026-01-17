@@ -15,7 +15,7 @@ public class AsyncFileSinkTests
         using var tempUtils = new FileSystemUtils();
         var tempFilePath = tempUtils.GenerateTempFilePath();
 
-        using var asyncFileSink = new AsyncFileSink(path: tempFilePath);
+        await using var asyncFileSink = new AsyncFileSink(path: tempFilePath);
         var logEvent = LogUtils.CreateLogEvent(logMessage);
 
         // Act
@@ -41,10 +41,8 @@ public class AsyncFileSinkTests
 
         // Act
         await using var asyncFileSink = new AsyncFileSink(tempFilePath, 1);
-        {
-            Parallel.For(1, logCount, _ => { asyncFileSink.Emit(logEvent); });
-        }
-        
+        Parallel.For(1, logCount, _ => { asyncFileSink.Emit(logEvent); });
+
         asyncFileSink.Emit(logEvent);
         await Task.Delay(150);
 
@@ -53,6 +51,7 @@ public class AsyncFileSinkTests
         // Assert
         var logLines = await File.ReadAllLinesAsync(tempFilePath);
         Assert.Equal(logCount, logLines.Length);
+        Assert.Contains(logMessage, firstLine);
     }
 
     [Fact]
@@ -218,5 +217,82 @@ public class AsyncFileSinkTests
         // Assert
         var logLines = await File.ReadAllLinesAsync(tempFilePath);
         Assert.Equal(logCount, logLines.Length);
+    }
+
+    [Fact]
+    public async Task Emit_DisposeSink_WritesAllPendingLogs()
+    {
+        // Arrange
+        const int logCount = 1_000;
+        const string logMessage = "Test log message";
+        using var tempUtils = new FileSystemUtils();
+        var tempFilePath = tempUtils.GenerateTempFilePath();
+        var logEvent = LogUtils.CreateLogEvent(logMessage);
+
+        // Act
+        await using (var asyncFileSink = new AsyncFileSink(tempFilePath))
+        {
+            for (var i = 0; i < logCount; i++)
+            {
+                asyncFileSink.Emit(logEvent);
+            }
+        }
+
+        // Assert
+        var logLines = await File.ReadAllLinesAsync(tempFilePath);
+        Assert.Equal(logCount, logLines.Length);
+    }
+
+    [Fact]
+    public async Task Emit_WriteLogWithJsonFormatter_LineIsWrittenInJsonFormat()
+    {
+        // Arrange
+        const string logMessage = "Test log message";
+        using var tempUtils = new FileSystemUtils();
+        var tempFilePath = tempUtils.GenerateTempFilePath();
+        await using var asyncFileSink = new AsyncFileSink(path: tempFilePath, formatter: new JsonFormatter());
+        var logEvent = LogUtils.CreateLogEvent(logMessage);
+        
+        // Act
+        asyncFileSink.Emit(logEvent);
+        await Task.Delay(150);
+        var firstLine = await tempUtils.ReadFirstLine(tempFilePath);
+        
+        // Assert
+        Assert.Contains("\"MessageTemplate\":\"Test log message\"", firstLine);
+    }
+    
+    [Fact]
+    public async Task Emit_AppendLinesAfterRestart_LinesAreAppendedInOrder()
+    {
+        // Arrange
+        const string logMessage1 = "First log message";
+        const string logMessage2 = "Second log message";
+
+        using var tempUtils = new FileSystemUtils();
+        var tempFilePath = tempUtils.GenerateTempFilePath();
+
+        // Act - First run
+        await using (var asyncFileSink = new AsyncFileSink(path: tempFilePath))
+        {
+            var logEvent1 = LogUtils.CreateLogEvent(logMessage1);
+            asyncFileSink.Emit(logEvent1);
+            await Task.Delay(150);
+        }
+
+        // Act - Second run
+        await using (var asyncFileSink = new AsyncFileSink(path: tempFilePath))
+        {
+            var logEvent2 = LogUtils.CreateLogEvent(logMessage2);
+            asyncFileSink.Emit(logEvent2);
+            await Task.Delay(150);
+        }
+
+        var logLines = await File.ReadAllLinesAsync(tempFilePath);
+
+        // Assert
+        Assert.Equal(2, logLines.Length);
+        Assert.Contains(logMessage1, logLines[0]);
+        Assert.Contains(logMessage2, logLines[1]);
     }
 }

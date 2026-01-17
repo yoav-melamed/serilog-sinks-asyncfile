@@ -126,6 +126,8 @@ public sealed class AsyncFileSink
 
         _underlingFileStream =
             new FileStream(_logPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read);
+        
+        _underlingFileStream.Seek(0, SeekOrigin.End);
 
         _writer = new StreamWriter(_underlingFileStream, Encoding.UTF8);
         _writer.AutoFlush = true;
